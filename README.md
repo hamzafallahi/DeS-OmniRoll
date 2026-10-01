@@ -90,13 +90,9 @@ python tools/build_omniroll.py --elf <your decrypted EBOOT.elf> --patch-db <RPCS
 See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#building-and-verifying).
 
 ## Credits
-* **hamzafallahi**: research, testing, release.
-* Built with **Claude Code** (Anthropic): reverse engineering, patch code and documentation were done in an
-  AI-assisted session, with every address verified against the running game.
-* **horkrux**: the BLES00932 FreeCam patch. Its `PadMan::GetPadDeviceForIdx` label was the starting point, and its
-  use of the function at 0x220320 showed that function is unused.
-* **Whatcookie, Gibbed** and the RPCS3 patch authors: their patches showed how code caves are done for this game.
-* The **RPCS3** team, **Ghidra** (NSA) and **Capstone**.
+* **hamzafallahi**: research, testing, release, reverse engineering, patch code and documentation, with every address verified against the running game.
+* The **RPCS3** team, **Ghidra** (NSA), **Capstone** and a lot of assistance from Claude xD.
+* the RPCS3 patch authors: their patches showed how code caves are done for this game.
 
 ## License
 MIT, see [LICENSE](LICENSE). This repository contains no game code or game files. The patch only contains new
