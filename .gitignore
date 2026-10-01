@@ -1,0 +1,6 @@
+# Never commit game files or decrypted executables
+*.elf
+*.BIN
+*.bin
+*.self
+__pycache__/

@@ -1,0 +1,179 @@
+Version: 1.2
+
+Anchors:
+  BLES00932_OmniRoll: &BLES00932_OmniRoll
+  # Omnidirectional locked-on roll v1.3 (hooks the roll-direction flag writes of PadManipulator 0x30f528)
+  # Cave: dead body of the function at 0x220320, past FreeCam's 0x220320-0x2204af. Telemetry @ 0x019EEB00:
+  #   +00 redirected  +04 directional rolls  +08/+0c stick x/y  +10 yaw before  +14 new yaw
+  #   +18 original flag  +1c yaw to target  +20 hold s left  +24 hold yaw  +28 hold frames  +2c raised flag
+    - [ be32, 0x0030f9d8, 0x4bf10b38 ] # b 0x220510   was: li r0,1 (raise flag 0x95)
+    - [ be32, 0x0031009c, 0x4bf1047c ] # b 0x220518   was: li r0,1 (raise flag 0x96)
+    - [ be32, 0x003100d4, 0x4bf1042c ] # b 0x220500   was: li r0,1 (raise flag 0x93)
+    - [ be32, 0x0031016c, 0x4bf1039c ] # b 0x220508   was: li r0,1 (raise flag 0x94)
+    - [ be32, 0x00311838, 0x4bf0eea5 ] # bl 0x2206dc  was: bl 0x30f528 (roll decision)
+    - [ be32, 0x00220500, 0x39600093 ] # li r11, 0x93                 // r11 = original direction flag 0x93
+    - [ be32, 0x00220504, 0x4800001c ] # b 0x220520                   
+    - [ be32, 0x00220508, 0x39600094 ] # li r11, 0x94                 // r11 = original direction flag 0x94
+    - [ be32, 0x0022050c, 0x48000014 ] # b 0x220520                   
+    - [ be32, 0x00220510, 0x39600095 ] # li r11, 0x95                 // r11 = original direction flag 0x95
+    - [ be32, 0x00220514, 0x4800000c ] # b 0x220520                   
+    - [ be32, 0x00220518, 0x39600096 ] # li r11, 0x96                 // r11 = original direction flag 0x96
+    - [ be32, 0x0022051c, 0x48000004 ] # b 0x220520                   
+    - [ be32, 0x00220520, 0xf821ff81 ] # stdu r1, -0x80(r1)           // frame: linkage 0x00-0x2f, locals 0x60-0x7f
+    - [ be32, 0x00220524, 0x7c0802a6 ] # mflr r0                      
+    - [ be32, 0x00220528, 0xf8010090 ] # std r0, 0x90(r1)             // save LR
+    - [ be32, 0x0022052c, 0xf9610070 ] # std r11, 0x70(r1)            // save original flag
+    - [ be32, 0x00220530, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x00220534, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x00220538, 0x814c0004 ] # lwz r10, 4(r12)              
+    - [ be32, 0x0022053c, 0x394a0001 ] # addi r10, r10, 1             
+    - [ be32, 0x00220540, 0x914c0004 ] # stw r10, 4(r12)              // telem+04: directional rolls seen
+    - [ be32, 0x00220544, 0x880f0139 ] # lbz r0, 0x139(r15)           // ctrl+0x139 free-move flag: 0 = locked on
+    - [ be32, 0x00220548, 0x2f800000 ] # cmpwi cr7, r0, 0             
+    - [ be32, 0x0022054c, 0x409e0170 ] # bne cr7, 0x2206bc            // bne: unlocked -> vanilla
+    - [ be32, 0x00220550, 0x38610060 ] # addi r3, r1, 0x60            // out = sp+0x60
+    - [ be32, 0x00220554, 0x808100f8 ] # lwz r4, 0xf8(r1)             // pad device (0x30f528 keeps it at its sp+0x78)
+    - [ be32, 0x00220558, 0x38a00011 ] # li r5, 0x11                  
+    - [ be32, 0x0022055c, 0x38c00010 ] # li r6, 0x10                  
+    - [ be32, 0x00220560, 0x4bfa3929 ] # bl 0x1c3e88                  // bl read left stick -> out (x, y)
+    - [ be32, 0x00220564, 0xc0210060 ] # lfs f1, 0x60(r1)             // f1 = x (+ = right)
+    - [ be32, 0x00220568, 0xc0410064 ] # lfs f2, 0x64(r1)             // f2 = y (+ = up)
+    - [ be32, 0x0022056c, 0x813e81b0 ] # lwz r9, -0x7e50(r30)         // game roll deadzone (same global the vanilla compare uses)
+    - [ be32, 0x00220570, 0xc1a90000 ] # lfs f13, 0(r9)               
+    - [ be32, 0x00220574, 0xec610072 ] # fmuls f3, f1, f1             
+    - [ be32, 0x00220578, 0xec6218ba ] # fmadds f3, f2, f2, f3        // f3 = x*x + y*y
+    - [ be32, 0x0022057c, 0xec8d0372 ] # fmuls f4, f13, f13           // f4 = dz*dz
+    - [ be32, 0x00220580, 0xff832000 ] # fcmpu cr7, f3, f4            
+    - [ be32, 0x00220584, 0x409d0138 ] # ble cr7, 0x2206bc            // ble: stick inside deadzone -> vanilla
+    - [ be32, 0x00220588, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x0022058c, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x00220590, 0xd02c0008 ] # stfs f1, 8(r12)              // telem+08: x
+    - [ be32, 0x00220594, 0xd04c000c ] # stfs f2, 0xc(r12)            // telem+0c: y
+    - [ be32, 0x00220598, 0x48730e09 ] # bl 0x9513a0                  // bl atan2f(x, y): stick angle, 0 = up, + = right
+    - [ be32, 0x0022059c, 0xd0210068 ] # stfs f1, 0x68(r1)            // save stick angle
+    - [ be32, 0x002205a0, 0x812f0010 ] # lwz r9, 0x10(r15)            // ctrl+0x10 -> (rot x, yaw, z, w), position at +0x10
+    - [ be32, 0x002205a4, 0xc0090004 ] # lfs f0, 4(r9)                // current yaw = fallback reference
+    - [ be32, 0x002205a8, 0xd001006c ] # stfs f0, 0x6c(r1)            
+    - [ be32, 0x002205ac, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x002205b0, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x002205b4, 0xd00c0010 ] # stfs f0, 0x10(r12)           // telem+10: yaw before
+    - [ be32, 0x002205b8, 0x810f0004 ] # lwz r8, 4(r15)               // ctrl+4 -> PlayerIns
+    - [ be32, 0x002205bc, 0xc0290010 ] # lfs f1, 0x10(r9)             
+    - [ be32, 0x002205c0, 0xc0680110 ] # lfs f3, 0x110(r8)            
+    - [ be32, 0x002205c4, 0xec211828 ] # fsubs f1, f1, f3             // f1 = px - tx  (PlayerIns+0x110 = lock target point)
+    - [ be32, 0x002205c8, 0xc0490018 ] # lfs f2, 0x18(r9)             
+    - [ be32, 0x002205cc, 0xc0880118 ] # lfs f4, 0x118(r8)            
+    - [ be32, 0x002205d0, 0xec422028 ] # fsubs f2, f2, f4             // f2 = pz - tz
+    - [ be32, 0x002205d4, 0xeca10072 ] # fmuls f5, f1, f1             
+    - [ be32, 0x002205d8, 0xeca228ba ] # fmadds f5, f2, f2, f5        // f5 = dist^2
+    - [ be32, 0x002205dc, 0x3d400022 ] # lis r10, 0x22                // r10 = constants
+    - [ be32, 0x002205e0, 0x394a0750 ] # addi r10, r10, 0x750         
+    - [ be32, 0x002205e4, 0xc0ca0010 ] # lfs f6, 0x10(r10)            
+    - [ be32, 0x002205e8, 0xff853000 ] # fcmpu cr7, f5, f6            
+    - [ be32, 0x002205ec, 0x409d000c ] # ble cr7, 0x2205f8            // ble: degenerate target -> keep current yaw
+    - [ be32, 0x002205f0, 0x48730db1 ] # bl 0x9513a0                  // bl atan2f(px-tx, pz-tz) = yaw facing the target
+    - [ be32, 0x002205f4, 0xd021006c ] # stfs f1, 0x6c(r1)            
+    - [ be32, 0x002205f8, 0xc001006c ] # lfs f0, 0x6c(r1)             // f0 = reference yaw
+    - [ be32, 0x002205fc, 0xc0210068 ] # lfs f1, 0x68(r1)             // f1 = stick angle
+    - [ be32, 0x00220600, 0x3d400022 ] # lis r10, 0x22                // r10 = constants
+    - [ be32, 0x00220604, 0x394a0750 ] # addi r10, r10, 0x750         
+    - [ be32, 0x00220608, 0xc12a0018 ] # lfs f9, 0x18(r10)            
+    - [ be32, 0x0022060c, 0xc0aa0000 ] # lfs f5, 0(r10)               
+    - [ be32, 0x00220610, 0xc04a0014 ] # lfs f2, 0x14(r10)            
+    - [ be32, 0x00220614, 0x39600093 ] # li r11, 0x93                 // front half: forward roll
+    - [ be32, 0x00220618, 0xfd000a10 ] # fabs f8, f1                  
+    - [ be32, 0x0022061c, 0xff884800 ] # fcmpu cr7, f8, f9            
+    - [ be32, 0x00220620, 0x409d001c ] # ble cr7, 0x22063c            // ble: |angle| <= 90 deg
+    - [ be32, 0x00220624, 0x39600094 ] # li r11, 0x94                 // back half: back roll
+    - [ be32, 0x00220628, 0xff811000 ] # fcmpu cr7, f1, f2            
+    - [ be32, 0x0022062c, 0x409d000c ] # ble cr7, 0x220638            // ble: angle <= 0
+    - [ be32, 0x00220630, 0xec212828 ] # fsubs f1, f1, f5             // angle -= pi
+    - [ be32, 0x00220634, 0x48000008 ] # b 0x22063c                   
+    - [ be32, 0x00220638, 0xec21282a ] # fadds f1, f1, f5             // angle += pi
+    - [ be32, 0x0022063c, 0xf9610078 ] # std r11, 0x78(r1)            // save flag to raise
+    - [ be32, 0x00220640, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x00220644, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x00220648, 0xd00c001c ] # stfs f0, 0x1c(r12)           // telem+1c: reference yaw
+    - [ be32, 0x0022064c, 0xec00082a ] # fadds f0, f0, f1             // f0 = ref + angle
+    - [ be32, 0x00220650, 0x3d400022 ] # lis r10, 0x22                // r10 = constants
+    - [ be32, 0x00220654, 0x394a0750 ] # addi r10, r10, 0x750         
+    - [ be32, 0x00220658, 0xc0aa0000 ] # lfs f5, 0(r10)               
+    - [ be32, 0x0022065c, 0xc0ca0004 ] # lfs f6, 4(r10)               
+    - [ be32, 0x00220660, 0xc0ea0008 ] # lfs f7, 8(r10)               
+    - [ be32, 0x00220664, 0xff802800 ] # fcmpu cr7, f0, f5            
+    - [ be32, 0x00220668, 0x409d0008 ] # ble cr7, 0x220670            // ble: no wrap down
+    - [ be32, 0x0022066c, 0xec003028 ] # fsubs f0, f0, f6             
+    - [ be32, 0x00220670, 0xff803800 ] # fcmpu cr7, f0, f7            
+    - [ be32, 0x00220674, 0x409c0008 ] # bge cr7, 0x22067c            // bge: no wrap up
+    - [ be32, 0x00220678, 0xec00302a ] # fadds f0, f0, f6             
+    - [ be32, 0x0022067c, 0x812f0010 ] # lwz r9, 0x10(r15)            
+    - [ be32, 0x00220680, 0xd0090004 ] # stfs f0, 4(r9)               // SET YAW (the field SetRotation 0x2e9838 writes)
+    - [ be32, 0x00220684, 0xc0aa000c ] # lfs f5, 0xc(r10)             
+    - [ be32, 0x00220688, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x0022068c, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x00220690, 0xd00c0014 ] # stfs f0, 0x14(r12)           // telem+14: new yaw
+    - [ be32, 0x00220694, 0xd00c0024 ] # stfs f0, 0x24(r12)           // telem+24: hold yaw
+    - [ be32, 0x00220698, 0xd0ac0020 ] # stfs f5, 0x20(r12)           // telem+20: hold seconds left
+    - [ be32, 0x0022069c, 0x814c0000 ] # lwz r10, 0(r12)              
+    - [ be32, 0x002206a0, 0x394a0001 ] # addi r10, r10, 1             
+    - [ be32, 0x002206a4, 0x914c0000 ] # stw r10, 0(r12)              // telem+00: redirected rolls
+    - [ be32, 0x002206a8, 0xe9610070 ] # ld r11, 0x70(r1)             
+    - [ be32, 0x002206ac, 0x916c0018 ] # stw r11, 0x18(r12)           // telem+18: original flag
+    - [ be32, 0x002206b0, 0xe9610078 ] # ld r11, 0x78(r1)             // raise FORWARD (front half) or BACK (back half) instead
+    - [ be32, 0x002206b4, 0x916c002c ] # stw r11, 0x2c(r12)           // telem+2c: raised flag
+    - [ be32, 0x002206b8, 0x48000008 ] # b 0x2206c0                   
+    - [ be32, 0x002206bc, 0xe9610070 ] # ld r11, 0x70(r1)             // original flag
+    - [ be32, 0x002206c0, 0x38000001 ] # li r0, 1                     
+    - [ be32, 0x002206c4, 0x980e0158 ] # stb r0, 0x158(r14)           // PadManipulator+0x158: roll requested
+    - [ be32, 0x002206c8, 0x7c0e59ae ] # stbx r0, r14, r11            // PadManipulator+flag
+    - [ be32, 0x002206cc, 0xe8010090 ] # ld r0, 0x90(r1)              
+    - [ be32, 0x002206d0, 0x7c0803a6 ] # mtlr r0                      
+    - [ be32, 0x002206d4, 0x38210080 ] # addi r1, r1, 0x80            
+    - [ be32, 0x002206d8, 0x480ef180 ] # b 0x30f858                   // b 0x30f858 (vanilla join)
+    - [ be32, 0x002206dc, 0xf821ff81 ] # stdu r1, -0x80(r1)           
+    - [ be32, 0x002206e0, 0x7c0802a6 ] # mflr r0                      
+    - [ be32, 0x002206e4, 0xf8010090 ] # std r0, 0x90(r1)             
+    - [ be32, 0x002206e8, 0xd8210060 ] # stfd f1, 0x60(r1)            // save dt
+    - [ be32, 0x002206ec, 0xf8a10068 ] # std r5, 0x68(r1)             // save ctrl
+    - [ be32, 0x002206f0, 0x480eee39 ] # bl 0x30f528                  // bl 0x30f528 (original call, args untouched)
+    - [ be32, 0x002206f4, 0x3d80019f ] # lis r12, 0x19f               
+    - [ be32, 0x002206f8, 0x398ceb00 ] # addi r12, r12, -0x1500       
+    - [ be32, 0x002206fc, 0xc00c0020 ] # lfs f0, 0x20(r12)            // hold seconds left
+    - [ be32, 0x00220700, 0x3d400022 ] # lis r10, 0x22                // r10 = constants
+    - [ be32, 0x00220704, 0x394a0750 ] # addi r10, r10, 0x750         
+    - [ be32, 0x00220708, 0xc04a0014 ] # lfs f2, 0x14(r10)            
+    - [ be32, 0x0022070c, 0xff801000 ] # fcmpu cr7, f0, f2            
+    - [ be32, 0x00220710, 0x409d0030 ] # ble cr7, 0x220740            // ble: no hold active
+    - [ be32, 0x00220714, 0xc8210060 ] # lfd f1, 0x60(r1)             
+    - [ be32, 0x00220718, 0xfc200818 ] # frsp f1, f1                  
+    - [ be32, 0x0022071c, 0xec000828 ] # fsubs f0, f0, f1             // left -= dt
+    - [ be32, 0x00220720, 0xd00c0020 ] # stfs f0, 0x20(r12)           
+    - [ be32, 0x00220724, 0xe8a10068 ] # ld r5, 0x68(r1)              
+    - [ be32, 0x00220728, 0x81250010 ] # lwz r9, 0x10(r5)             
+    - [ be32, 0x0022072c, 0xc06c0024 ] # lfs f3, 0x24(r12)            
+    - [ be32, 0x00220730, 0xd0690004 ] # stfs f3, 4(r9)               // re-apply roll yaw
+    - [ be32, 0x00220734, 0x814c0028 ] # lwz r10, 0x28(r12)           
+    - [ be32, 0x00220738, 0x394a0001 ] # addi r10, r10, 1             
+    - [ be32, 0x0022073c, 0x914c0028 ] # stw r10, 0x28(r12)           // telem+28: hold frames
+    - [ be32, 0x00220740, 0xe8010090 ] # ld r0, 0x90(r1)              
+    - [ be32, 0x00220744, 0x7c0803a6 ] # mtlr r0                      
+    - [ be32, 0x00220748, 0x38210080 ] # addi r1, r1, 0x80            
+    - [ be32, 0x0022074c, 0x4e800020 ] # blr                          
+    - [ be32, 0x00220750, 0x40490fdb ] # .float                       // .float 3.14159 (pi)
+    - [ be32, 0x00220754, 0x40c90fdb ] # .float                       // .float 6.28319 (2pi)
+    - [ be32, 0x00220758, 0xc0490fdb ] # .float                       // .float -3.14159 (-pi)
+    - [ be32, 0x0022075c, 0x3e99999a ] # .float                       // .float 0.3 (hold seconds)
+    - [ be32, 0x00220760, 0x38d1b717 ] # .float                       // .float 0.0001 (min target dist^2)
+    - [ be32, 0x00220764, 0x00000000 ] # .float                       // .float 0 (zero)
+    - [ be32, 0x00220768, 0x3fc90fdb ] # .float                       // .float 1.5708 (pi/2)
+
+PPU-5446a2645880eefa75f7e374abd6b7818511e2ef:
+  "Omnidirectional Roll":
+    Games:
+      "Demon's Souls":
+        BLES00932: [ 01.00 ]
+    Author: "hamzafallahi"
+    Notes: "While locked on, rolls follow the left stick at any analog angle instead of the vanilla 4 directions. Unlocked rolls, backstep, stamina, i-frames and timing are vanilla. https://github.com/hamzafallahi/DeS-OmniRoll"
+    Patch Version: 1.3
+    Patch:
+      - [ load, *BLES00932_OmniRoll ]
