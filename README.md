@@ -91,7 +91,7 @@ See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#building-and-verifying).
 
 ## Credits
 * **hamzafallahi**: research, testing, release, reverse engineering, patch code and documentation, with every address verified against the running game.
-* The **RPCS3** team, **Ghidra** (NSA), **Capstone** and a lot of assistance from Claude xD.
+* The **RPCS3** team, **Ghidra** (NSA), **Capstone** and a lot of assistance from Claude.
 * the RPCS3 patch authors: their patches showed how code caves are done for this game.
 
 ## License
