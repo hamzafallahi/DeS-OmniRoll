@@ -1,6 +1,7 @@
-"""Builds the Omnidirectional Roll RPCS3 patch for Demon's Souls BLES00932 v1.00 (PPU-5446a264...).
+"""Builds the Omnidirectional Roll RPCS3 patch for Demon's Souls (EU BLES00932 / US BLUS30443, v01.00).
 
-Mechanism (verified live, see docs/HOW_IT_WORKS.md):
+Addresses below are the EU ones; the US build is the same code at different addresses (see REGIONS).
+Mechanism (verified live on EU, see docs/HOW_IT_WORKS.md):
   PadManipulator roll decision (0x30f528) raises one of four direction flags when a roll starts:
     +0x93 forward (@0x3100d4)  +0x94 back (@0x31016c)  +0x95 left (@0x30f9d8)  +0x96 right (@0x31009c)
   each site = li r0,1 / stb r0,0x158(r14) / stb r0,<flag>(r14) / b 0x30f858.
@@ -17,11 +18,13 @@ Patch:
     (lock-on turns the character back toward the target during the first ~0.1 s of a roll).
 
 Usage:
-  python build_omniroll.py [--elf EBOOT.elf] [--patch-db patch.yml] [--out DeS_OmniRoll.yml]
-    --elf       decrypted BLES00932 EBOOT (rpcs3.exe --decrypt EBOOT.BIN). Enables the original-bytes check
-                at every hook site. Without it, that check is skipped (a warning is printed).
-    --patch-db  RPCS3's patches/patch.yml. Enables the "no overlap with other BLES00932 patches" check.
-    --out       output patch file (default: DeS_OmniRoll.yml next to this script's parent folder /patches)
+  python build_omniroll.py [--region EU|US] [--elf EBOOT.elf] [--patch-db patch.yml] [--out file.yml]
+    --region    EU (BLES00932, default) or US (BLUS30443)
+    --elf       that region's decrypted EBOOT (rpcs3.exe --decrypt EBOOT.BIN). Enables the ELF checks: original
+                instructions at every hook site, the cave lies in unreachable code, the telemetry block is an
+                unreferenced zero block. Without it those checks are skipped (a warning is printed).
+    --patch-db  RPCS3's patches/patch.yml. Enables the "no overlap with that region's other patches" check.
+    --out       output file (default: ../patches/DeS_OmniRoll_<EU_BLES00932|US_BLUS30443>.yml)
 Requires: Python 3.8+, capstone (pip install capstone) for the commented listing.
 """
 import struct, re, os, sys
@@ -32,7 +35,7 @@ import capstone
 def load_elf(path):
     """Minimal PPC64 BE ELF reader: returns a u32(va) function over PT_LOAD segments."""
     data = open(path, 'rb').read()
-    assert data[:4] == b'ELF', 'not a decrypted ELF (use rpcs3.exe --decrypt EBOOT.BIN)'
+    assert data[:4] == b'\x7fELF', 'not a decrypted ELF (use rpcs3.exe --decrypt EBOOT.BIN)'
     phoff, = struct.unpack_from('>Q', data, 0x20)
     phentsize, phnum = struct.unpack_from('>HH', data, 0x36)
     segs = []
@@ -46,36 +49,89 @@ def load_elf(path):
             if sva <= va and va + 4 <= sva + fsz:
                 return struct.unpack_from('>I', data, off + va - sva)[0]
         raise ValueError(hex(va))
+    u32.data, u32.segs = data, segs
     return u32
+
+
+def check_unreachable(u32, lo, hi, func, func_end):
+    """[lo, hi) must be unreachable: no b/bl/bc from outside [func, func_end) into [func, func_end), and no 32-bit
+    word anywhere pointing into it except the function's own descriptor, which itself must be unreferenced."""
+    data, segs = u32.data, u32.segs
+    text_va, text_off, text_sz = segs[0]
+    n = text_sz // 4
+    words = struct.unpack_from('>%dI' % n, data, text_off)
+    for i, w in enumerate(words):
+        va = text_va + 4 * i
+        if func <= va < func_end:
+            continue
+        op = w >> 26
+        if op == 18 and not (w & 2):
+            off = w & 0x03fffffc
+            tgt = va + (off - 0x4000000 if off & 0x2000000 else off)
+        elif op == 16 and not (w & 2):
+            off = w & 0xfffc
+            tgt = va + (off - 0x10000 if off & 0x8000 else off)
+        else:
+            continue
+        assert not (func <= tgt < func_end), 'branch from 0x%x into the cave function' % va
+    allw = struct.unpack_from('>%dI' % (len(data) // 4), data, 0)
+    ptrs = [i * 4 for i, w in enumerate(allw) if func <= w < func_end]
+    file_to_va = lambda o: next(sva + o - off for sva, off, fsz in segs if off <= o < off + fsz)
+    for o in ptrs:
+        opd = file_to_va(o)
+        assert allw[o // 4] == func, 'pointer into the middle of the cave function at 0x%x' % opd
+        assert opd not in allw, 'the cave function descriptor 0x%x is referenced' % opd
+    assert lo >= func and hi <= func_end
+
+
+def check_zero_block(u32, lo, hi):
+    for va in range(lo, hi, 4):
+        assert u32(va) == 0, 'telemetry block not zero at 0x%x' % va
+    allw = struct.unpack_from('>%dI' % (len(u32.data) // 4), u32.data, 0)
+    assert not any(lo - 0x40 <= w < hi for w in allw), 'a pointer references the telemetry block' 
 
 
 def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PPU_HASH = 'PPU-5446a2645880eefa75f7e374abd6b7818511e2ef'
 PATCH_VERSION = '1.3'
-CAVE = 0x00220500          # dead body of the function at 0x220320 (no callers, no refs to its OPD; FreeCam overwrites its entry)
-CAVE_LIMIT = 0x00222538    # next function
-TELEM = 0x019eeb00         # unreferenced zero block in .data (0x19eea54-0x19eebf8), verified zero live
-TELEM_SIZE = 0x30  # +2c raised flag
 HOLD_SECONDS = 0.30        # lock-on turns the char back toward the target during the first ~0.1 s of a roll
 YAW_SIGN = +1              # yaw := ref + YAW_SIGN*atan2(x, y); verified in game: -1 was mirrored (v1.1)
+TELEM_SIZE = 0x30
 
-SITES = {0x93: 0x3100d4, 0x94: 0x31016c, 0x95: 0x30f9d8, 0x96: 0x31009c}
+# Per-executable addresses. EU: found and verified in game. US: same code shifted (decision/hook region -0xdd8,
+# pad code -0xe88, matching the US FreeCam patch); the --elf checks validate a US EBOOT.
+REGIONS = {
+    'EU': dict(serial='BLES00932', title_id='EU', ppu='PPU-5446a2645880eefa75f7e374abd6b7818511e2ef',
+               func=0x220320, func_end=0x222538,   # unreachable function holding the cave (FreeCam uses its head)
+               cave=0x220500,
+               telem=0x019eeb00, telem_run=(0x19eea54, 0x19eebf8),
+               sites={0x93: 0x3100d4, 0x94: 0x31016c, 0x95: 0x30f9d8, 0x96: 0x31009c},
+               join=0x30f858, decision=0x30f528, hold_site=0x311838,
+               get_stick=0x1c3e88, atan2f=0x9513a0),
+    'US': dict(serial='BLUS30443', title_id='US', ppu='PPU-83681f6110d33442329073b72b8dc88a2f677172',
+               func=0x21f498, func_end=0x2216b0,   # same function as EU 0x220320 (US FreeCam uses its head)
+               cave=0x221400,
+               telem=0x019eeb00, telem_run=(0x19eeab8, 0x19eeb38),
+               sites={0x93: 0x30f2fc, 0x94: 0x30f394, 0x95: 0x30ec00, 0x96: 0x30f2c4},
+               join=0x30ea80, decision=0x30e750, hold_site=0x310a60,
+               get_stick=0x1c3000, atan2f=0x94f928),
+}
+REGION = (sys.argv[sys.argv.index('--region') + 1] if '--region' in sys.argv else 'EU').upper()
+R = REGIONS[REGION]
+SERIAL, PPU_HASH = R['serial'], R['ppu']
+CAVE, CAVE_LIMIT, TELEM = R['cave'], R['func_end'], R['telem']
+SITES, JOIN, ROLL_DECISION, HOLD_SITE = R['sites'], R['join'], R['decision'], R['hold_site']
+GET_STICK, ATAN2F = R['get_stick'], R['atan2f']
 SITE_ORIG = lambda flag: [0x38000001, 0x980e0158, 0x980e0000 | flag]
-JOIN = 0x30f858
-ROLL_DECISION = 0x30f528
-HOLD_SITE = 0x311838       # PadManipulator::Update: bl 0x30f528
-GET_STICK = 0x1c3e88       # (out, device, 0x11, 0x10): out+0 = x (axis 0x11), out+4 = y (axis 0x10)
-ATAN2F = 0x9513a0          # f1 = atan2f(f1, f2) (same helper NoAnimeTurnCharactor uses)
 
 
 # ---------------- tiny PPC encoder ----------------
 def D(op, rt, ra, d): return (op << 26) | (rt << 21) | (ra << 16) | (d & 0xffff)
 def DS(op, rs, ra, ds, xo): assert ds % 4 == 0; return (op << 26) | (rs << 21) | (ra << 16) | (ds & 0xfffc) | xo
 def addi(rt, ra, v):
-    assert ra != 0 or True
+    assert ra != 0, 'addi with rA=0 means li: use li()'
     return D(14, rt, ra, v)  # NB: ra=0 means literal 0 -> only li() may use it
 li = lambda rt, v: D(14, rt, 0, v)
 lis = lambda rt, v: D(15, rt, 0, v)
@@ -318,8 +374,11 @@ def main():
         off = orig[3] & 0x03fffffc
         assert site + 12 + (off - 0x4000000 if off & 0x2000000 else off) == JOIN
     if elf_path:
-        assert elf_u32(HOLD_SITE) == rel_b(HOLD_SITE, ROLL_DECISION, link=True), 'hold site is not bl 0x30f528'
-    # 3) no overlap with any other BLES00932 patch
+        assert elf_u32(HOLD_SITE) == rel_b(HOLD_SITE, ROLL_DECISION, link=True), 'hold site is not bl <roll decision>'
+        check_unreachable(elf_u32, CAVE, end, R['func'], R['func_end'])
+        check_zero_block(elf_u32, TELEM, TELEM + TELEM_SIZE)
+        print('ELF checks passed (hook sites, unreachable cave, zero telemetry block)')
+    # 3) no overlap with any other patch for this executable
     db = arg('--patch-db')
     used = patch_ranges(db) if db else []
     if not db:
@@ -328,16 +387,19 @@ def main():
     for lo, hi in mine:
         for name, (ulo, uhi) in used:
             assert hi <= ulo or lo >= uhi, ('overlap', name, hex(lo), hex(ulo))
-    assert 0x19eea54 <= TELEM and TELEM + TELEM_SIZE <= 0x19eebf8
+    assert R['telem_run'][0] <= TELEM and TELEM + TELEM_SIZE <= R['telem_run'][1]
     # 4) listing via capstone
     cs = capstone.Cs(capstone.CS_ARCH_PPC, capstone.CS_MODE_64 | capstone.CS_MODE_BIG_ENDIAN)
     consts_at = a.labels['consts']
     hooks = [(site, rel_b(site, a.labels['stub%x' % flag]), 'b 0x%x   was: li r0,1 (raise flag 0x%x)' % (a.labels['stub%x' % flag], flag))
              for flag, site in sorted(SITES.items(), key=lambda kv: kv[1])]
-    hooks.append((HOLD_SITE, rel_b(HOLD_SITE, a.labels['hold'], link=True), 'bl 0x%x  was: bl 0x30f528 (roll decision)' % a.labels['hold']))
-    out = ['  BLES00932_OmniRoll: &BLES00932_OmniRoll',
-           '  # Omnidirectional locked-on roll v%s (hooks the roll-direction flag writes of PadManipulator 0x30f528)' % PATCH_VERSION,
-           "  # Cave: dead body of the function at 0x220320, past FreeCam's 0x220320-0x2204af. Telemetry @ 0x%08X:" % TELEM,
+    hooks.append((HOLD_SITE, rel_b(HOLD_SITE, a.labels['hold'], link=True),
+                  'bl 0x%x  was: bl 0x%x (roll decision)' % (a.labels['hold'], ROLL_DECISION)))
+    anchor_name = '%s_OmniRoll' % SERIAL
+    out = ['  %s: &%s' % (anchor_name, anchor_name),
+           '  # Omnidirectional locked-on roll v%s for %s %s (hooks the roll-direction flag writes of the roll decision 0x%x)'
+           % (PATCH_VERSION, R['title_id'], SERIAL, ROLL_DECISION),
+           '  # Cave in unreachable code: function 0x%x, cave 0x%x-0x%x. Telemetry @ 0x%08X:' % (R['func'], CAVE, end, TELEM),
            '  #   +00 redirected  +04 directional rolls  +08/+0c stick x/y  +10 yaw before  +14 new yaw',
            '  #   +18 original flag  +1c yaw to target  +20 hold s left  +24 hold yaw  +28 hold frames  +2c raised flag']
     for site, w, txt in hooks:
@@ -356,36 +418,36 @@ def main():
            '  "Omnidirectional Roll":\n'
            '    Games:\n'
            '      "Demon\'s Souls":\n'
-           '        BLES00932: [ 01.00 ]\n'
+           '        %s: [ 01.00 ]\n'
            '    Author: "hamzafallahi"\n'
            '    Notes: "While locked on, rolls follow the left stick at any analog angle instead of the vanilla 4 directions. '
            'Unlocked rolls, backstep, stamina, i-frames and timing are vanilla. https://github.com/hamzafallahi/DeS-OmniRoll"\n'
            '    Patch Version: %s\n'
            '    Patch:\n'
-           '      - [ load, *BLES00932_OmniRoll ]\n') % PATCH_VERSION
-    out_path = arg('--out', os.path.join(HERE, '..', 'patches', 'DeS_OmniRoll.yml'))
+           '      - [ load, *%s ]\n') % (SERIAL, PATCH_VERSION, anchor_name)
+    out_path = arg('--out', os.path.join(HERE, '..', 'patches', 'DeS_OmniRoll_%s_%s.yml' % (R['title_id'], SERIAL)))
     open(out_path, 'w', newline='\n').write(doc)
-    print('cave 0x%x-0x%x (%d words); self-checks passed' % (CAVE, end, len(a.words)))
+    print('%s %s: cave 0x%x-0x%x (%d words); self-checks passed' % (REGION, SERIAL, CAVE, end, len(a.words)))
     print('wrote', os.path.abspath(out_path))
 
 
 def patch_ranges(path):
-    """(name, (lo, hi)) for every address patched by BLES00932 anchors and the PPU-5446 section of patch.yml."""
+    """(name, (lo, hi)) for every address patched by this executable's anchors and PPU section of patch.yml."""
     txt = open(path, encoding='utf-8').read()
     res, cur = [], None
     for line in txt.splitlines():
         m = re.match(r'  (\w+): &\w+', line)
         if m:
-            cur = m.group(1) if m.group(1).startswith('BLES00932') else None
+            cur = m.group(1) if m.group(1).startswith(SERIAL) else None
         if line.startswith('PPU-'):
-            cur = 'PPU-5446' if line.startswith(PPU_HASH) else None
+            cur = PPU_HASH[:10] if line.startswith(PPU_HASH) else None
         if cur:
             m = re.search(r'\[\s*(be32|be16|byte|bef32|be64|bef64)\s*,\s*(0x[0-9a-fA-F]+)', line)
             if m:
                 n = {'be32': 4, 'be16': 2, 'byte': 1, 'bef32': 4, 'be64': 8, 'bef64': 8}[m.group(1)]
                 ad = int(m.group(2), 16)
                 res.append((cur, (ad, ad + n)))
-    res.append(('FpsUnlock-data', (0x01852608, 0x01852620)))  # used via lis/addi, not a patch address
+    res.append(('FpsUnlock-data', (0x01852608, 0x01852620)))  # EU and US FPS patch data slot (lis/addi, not a patch line)
     return res
 
 

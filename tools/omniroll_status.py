@@ -9,8 +9,10 @@ If RPCS3 runs as administrator, run this from an administrator prompt too.
 """
 import ctypes, ctypes.wintypes as wt, math, struct, subprocess, sys, time
 
-CAVE, CAVE_SIG = 0x00220500, bytes.fromhex('396000934800001c')   # first two patch words
-HOOK, TEL = 0x00311838, 0x019EEB00
+CAVE_SIG = bytes.fromhex('396000934800001c')   # first two words of the patch code
+# region: (cave address, hold hook address); telemetry block is at 0x019EEB00 in both
+REGIONS = {'EU BLES00932': (0x00220500, 0x00311838), 'US BLUS30443': (0x00221400, 0x00310a60)}
+TEL = 0x019EEB00
 
 k32 = ctypes.WinDLL('kernel32', use_last_error=True)
 k32.OpenProcess.restype = wt.HANDLE
@@ -50,24 +52,25 @@ def hread(addr, n):
 
 
 def find_base():
-    """Host address of PS3 address 0: the region holding the game's code starts at PS3 address 0x10000."""
+    """(host address of PS3 address 0, region): the region holding the game's code starts at PS3 address 0x10000."""
     m, a = MBI(), 0
     while a < 0x7FFF_FFFF_FFFF and k32.VirtualQueryEx(H, ctypes.c_void_p(a), ctypes.byref(m), ctypes.sizeof(m)):
         if m.State == 0x1000 and m.RegionSize >= 0x1000000:
             base = m.BaseAddress - 0x10000
-            if hread(base + CAVE, 8) == CAVE_SIG:
-                return base
+            for name, (cave, hook) in REGIONS.items():
+                if hread(base + cave, 8) == CAVE_SIG:
+                    return base, name
         a = m.BaseAddress + m.RegionSize
-    return None
+    return None, None
 
 
-base = find_base()
+base, region = find_base()
 if base is None:
     sys.exit('Patch NOT active: the Omnidirectional Roll code is not in memory.\n'
-             'Check that the patch is ticked in Manage Game Patches, that the game is BLES00932 v1.00,\n'
+             'Check that the patch is ticked in Manage Game Patches, that the game is BLES00932 or BLUS30443 v01.00,\n'
              'and that you fully restarted the game after enabling it.')
-hook_ok = hread(base + HOOK, 4) != bytes.fromhex('4bffdcf1')   # original: bl 0x30f528
-print('Patch ACTIVE (code found, hold hook %s).' % ('installed' if hook_ok else 'MISSING'))
+hook_ok = hread(base + REGIONS[region][1], 4) != bytes.fromhex('4bffdcf1')   # original: bl <roll decision> (same word in both)
+print('Patch ACTIVE on %s (code found, hold hook %s).' % (region, 'installed' if hook_ok else 'MISSING'))
 
 
 def tel():
