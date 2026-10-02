@@ -16,33 +16,38 @@ Demon's Souls remake and later Souls games.
 It's an RPCS3 game patch, a small text file. No game files are modified, and it can be turned on or off in
 RPCS3's patch manager.
 
-## Requirements
+## Supported versions
+
+| Region | Serial | Version | RPCS3 PPU hash | Patch file | Status |
+|---|---|---|---|---|---|
+| Europe | BLES00932 | 01.00 | `PPU-5446a2645880eefa75f7e374abd6b7818511e2ef` | `patches/DeS_OmniRoll_EU_BLES00932.yml` | tested in game |
+| North America | BLUS30443 | 01.00 | `PPU-83681f6110d33442329073b72b8dc88a2f677172` | `patches/DeS_OmniRoll_US_BLUS30443.yml` | new in this release, please report how it works |
+
+Japan (BCJS30022), Asia (BCAS20071) and the trade demo aren't supported. A patch only appears in RPCS3 for the
+exact executable it was made for, so installing the wrong file does nothing.
+
+To check your version: in RPCS3, right-click the game. The serial is shown in the game list, and
+*Manage Game Patches* shows the serial and version (`01.00`).
 
 | | |
 |---|---|
 | Emulator | [RPCS3](https://rpcs3.net) (tested on 0.0.42-20001) |
-| Game | **Demon's Souls EU, BLES00932, version 01.00** (PPU hash `PPU-5446a2645880eefa75f7e374abd6b7818511e2ef`) |
 | Input | Tested with an Xbox 360 controller. Keyboard should give 8 directions but is untested. |
-
-**Other regions (US BLUS30443, JP, Asia) are not supported yet.** The patch uses exact code addresses, and those
-differ between versions. Applied to another version, the patch simply won't show up for it. See
-[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#porting-to-other-versions) if you want to help port it.
-
-To check your version: in RPCS3, right-click the game → *Manage Game Patches*. The game must show as
-`BLES00932` / `01.00`.
 
 ## Install
 
+Use the file for **your** region (see the table above).
+
 ### Option A: RPCS3's patch import (recommended)
-1. Download `DeS_OmniRoll.yml` (in `patches/`).
+1. Download your region's `.yml` from `patches/`.
 2. In RPCS3: right-click **Demon's Souls** → **Manage Game Patches**.
-3. Click **Import**, choose `DeS_OmniRoll.yml`, and confirm.
+3. Click **Import**, choose the `.yml`, and confirm.
 4. In the list, under Demon's Souls, tick **Omnidirectional Roll**, then **Save**.
 5. Fully **close and restart** the game. Patches are applied when the game boots.
 
 ### Option B: manual copy
 Only if you do **not** already have a file called `imported_patch.yml` in RPCS3's `patches` folder:
-1. Copy `patches/DeS_OmniRoll.yml` into `<RPCS3 folder>/patches/` and rename it to `imported_patch.yml`.
+1. Copy your region's `.yml` into `<RPCS3 folder>/patches/` and rename it to `imported_patch.yml`.
 2. Tick **Omnidirectional Roll** in *Manage Game Patches* and restart the game.
 
 If you already have an `imported_patch.yml`, use Option A. It adds the patch to that file instead of replacing it.
@@ -50,50 +55,51 @@ If you already have an `imported_patch.yml`, use Option A. It adds the patch to 
 ### Check that it works
 Lock onto an enemy, hold the stick diagonally (for example forward-left) and roll. You should roll diagonally.
 
-Optional (Windows, Python 3): `python tools/omniroll_status.py --watch` confirms the patch is in memory and prints a line
-for every redirected roll. It only reads memory.
+Optional (Windows, Python 3): `python tools/omniroll_status.py --watch` detects the region, confirms the patch is in
+memory and prints a line for every redirected roll. It only reads memory.
 
 ## Uninstall
 Untick **Omnidirectional Roll** in *Manage Game Patches* and restart the game. To remove it completely, delete its
-`BLES00932_OmniRoll` anchor and its `"Omnidirectional Roll"` entry from `patches/imported_patch.yml`, or delete that file
-if this was the only patch in it.
+`BLES00932_OmniRoll` / `BLUS30443_OmniRoll` anchor and its `"Omnidirectional Roll"` entry from
+`patches/imported_patch.yml`, or delete that file if this was the only patch in it.
 
 ## Compatibility
-* Works alongside the usual BLES00932 patches (Unlock FPS, Skip Intro, Disable Motion Blur, Aspect Ratio):
-  the addresses don't overlap, which the build script checks against RPCS3's patch database. Tested with
-  Unlock FPS, Skip Intro and Disable Motion Blur enabled.
-* Doesn't overlap the **FreeCam** patch's addresses (the patch code sits just past FreeCam's code area),
-  but using both together hasn't been tested.
+* Works alongside the usual RPCS3 patches for this game (Unlock FPS, Skip Intro, Disable Motion Blur, Aspect Ratio):
+  the addresses don't overlap, which the build script checks against RPCS3's patch database for each region.
+  On EU it was tested with Unlock FPS, Skip Intro and Disable Motion Blur enabled.
+* Doesn't overlap the **FreeCam** patch's addresses in either region, but using both together hasn't been tested.
 * Texture/file mods (e.g. `_MODS` folders) aren't affected, since this patch only changes game code in memory.
 * Tested offline only. Online (private servers) is untested.
 
 ## Troubleshooting
-* **The patch isn't listed in Manage Game Patches**: your game isn't BLES00932 01.00, or the import failed.
+* **The patch isn't listed in Manage Game Patches**: wrong file for your region/version, or the import failed.
   Check RPCS3's log (`RPCS3.log`) for "patch" errors.
 * **Ticked, but rolls are still 4-way**: restart the game completely (stop emulation, boot again).
   Patches are only applied at boot. `tools/omniroll_status.py` tells you whether the code is in memory.
-* **Rolls go the mirrored way / feel wrong**: please open an issue with your controller type and a short clip.
+* **US version crashes or misbehaves**: please open an issue with your RPCS3 log. Until then, untick the patch.
+* **Rolls go the mirrored way / feel wrong**: please open an issue with your region, controller type and a short clip.
 
 ## How it works
 Short version: when a locked-on roll starts, the patch reads your stick and turns your character toward the
 stick direction, measured from the direction to your lock-on target. It then makes the game play a forward roll
 (front half) or a back roll (back half), and holds that facing for 0.3 s so lock-on can't pull it back.
 
-The full write-up covers how the game's roll code works, every address, how it was reverse-engineered, how to
-rebuild the patch and how to port it: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)**.
+The full write-up covers how the game's roll code works, every address for both regions, how it was
+reverse-engineered, how to rebuild the patch and how to port it: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)**.
 
 ## Building from source
-The patch file is generated by `tools/build_omniroll.py` (Python 3 + `pip install capstone`):
+The patch files are generated by `tools/build_omniroll.py` (Python 3 + `pip install capstone`):
 ```
-python tools/build_omniroll.py --elf <your decrypted EBOOT.elf> --patch-db <RPCS3>/patches/patch.yml
+python tools/build_omniroll.py --region EU --elf <decrypted EU EBOOT.elf> --patch-db <RPCS3>/patches/patch.yml
+python tools/build_omniroll.py --region US --elf <decrypted US EBOOT.elf> --patch-db <RPCS3>/patches/patch.yml
 ```
 See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#building-and-verifying).
 
 ## Credits
-* **hamzafallahi**: research, testing, release, reverse engineering, patch code and documentation, with every address verified against the running game.
+* **hamzafallahi**: research, testing, release, reverse engineering, patch code, US version and documentation, with every EU address verified against the running game.
 * The **RPCS3** team, **Ghidra** (NSA), **Capstone** and a lot of assistance from Claude.
 * the RPCS3 patch authors: their patches showed how code caves are done for this game.
 
 ## License
-MIT, see [LICENSE](LICENSE). This repository contains no game code or game files. The patch only contains new
-instructions written for it and the addresses where they go.
+MIT, see [LICENSE](LICENSE). This repository contains no game code or game files. The patches only contain new
+instructions written for them and the addresses where they go.
