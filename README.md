@@ -23,8 +23,8 @@ RPCS3's patch manager.
 
 | Region | Serial | Version | RPCS3 PPU hash | Patch file | Status |
 |---|---|---|---|---|---|
-| Europe | BLES00932 | 01.00 | `PPU-5446a2645880eefa75f7e374abd6b7818511e2ef` | `patches/DeS_OmniRoll_EU_BLES00932.yml` | tested in game |
-| North America | BLUS30443 | 01.00 | `PPU-83681f6110d33442329073b72b8dc88a2f677172` | `patches/DeS_OmniRoll_US_BLUS30443.yml` | new in this release, please report how it works |
+| Europe | BLES00932 | 01.00 | `PPU-5446a2645880eefa75f7e374abd6b7818511e2ef` | `patches/DeS_OmniRoll_EU_BLES00932_patch.yml` | tested in game |
+| North America | BLUS30443 | 01.00 | `PPU-83681f6110d33442329073b72b8dc88a2f677172` | `patches/DeS_OmniRoll_US_BLUS30443_patch.yml` | new in this release, please report how it works |
 
 Japan (BCJS30022), Asia (BCAS20071) and the trade demo aren't supported. A patch only appears in RPCS3 for the
 exact executable it was made for, so installing the wrong file does nothing.
@@ -41,19 +41,27 @@ To check your version: in RPCS3, right-click the game. The serial is shown in th
 
 Use the file for **your** region (see the table above).
 
-### Option A: RPCS3's patch import (recommended)
-1. Download your region's `.yml` from `patches/`.
+### Option A: drag & drop into the Patch Manager (recommended)
+RPCS3's Patch Manager has **no Import button**. Importing works by dragging the file onto the window. (Earlier
+versions of this README said "click Import", which was wrong. Sorry!)
+
+1. Download your region's `…_patch.yml` from `patches/`. **Keep the file name as it is**: RPCS3 only accepts
+   files whose name ends in `patch.yml`.
 2. In RPCS3: right-click **Demon's Souls** → **Manage Game Patches**.
-3. Click **Import**, choose the `.yml`, and confirm.
-4. In the list, under Demon's Souls, tick **Omnidirectional Roll**, then **Save**.
-5. Fully **close and restart** the game. Patches are applied when the game boots.
+3. Drag the `…_patch.yml` file from Windows Explorer and drop it onto the patch list.
+4. RPCS3 asks *"What do you want to do with the patch file?"*. Click **Import**. You should see
+   "Imported 1/1 patches". (**Validate** only checks the file without installing it.)
+5. In the list, under Demon's Souls → your serial, tick **Omnidirectional Roll**, then **Save**.
+6. Fully **close and restart** the game. Patches are applied when the game boots.
+
+This adds the patch to `patches/imported_patch.yml` and keeps any other imported patches you already have.
 
 ### Option B: manual copy
 Only if you do **not** already have a file called `imported_patch.yml` in RPCS3's `patches` folder:
-1. Copy your region's `.yml` into `<RPCS3 folder>/patches/` and rename it to `imported_patch.yml`.
-2. Tick **Omnidirectional Roll** in *Manage Game Patches* and restart the game.
+1. Copy your region's `…_patch.yml` into `<RPCS3 folder>/patches/` and rename the copy to `imported_patch.yml`.
+2. Tick **Omnidirectional Roll** in *Manage Game Patches*, **Save**, and restart the game.
 
-If you already have an `imported_patch.yml`, use Option A. It adds the patch to that file instead of replacing it.
+If you already have an `imported_patch.yml`, use Option A instead, so your other patches aren't replaced.
 
 ### Check that it works
 Lock onto an enemy, hold the stick diagonally (for example forward-left) and roll. You should roll diagonally.
@@ -75,6 +83,9 @@ Untick **Omnidirectional Roll** in *Manage Game Patches* and restart the game. T
 * Tested offline only. Online (private servers) is untested.
 
 ## Troubleshooting
+* **Dropping the file does nothing**: the file name must end in `patch.yml` (e.g. `DeS_OmniRoll_EU_BLES00932_patch.yml`).
+  Downloads renamed to something like `…_patch (1).yml` are refused, so rename them back. Drop it onto the patch
+  list inside *Manage Game Patches*, not onto the main RPCS3 window.
 * **The patch isn't listed in Manage Game Patches**: wrong file for your region/version, or the import failed.
   Check RPCS3's log (`RPCS3.log`) for "patch" errors.
 * **Ticked, but rolls are still 4-way**: restart the game completely (stop emulation, boot again).

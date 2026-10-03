@@ -2,6 +2,12 @@
 
 Tested on RPCS3 0.0.42-20001.
 
+## 1.4.1
+- Install instructions fixed. RPCS3's Patch Manager has no Import button: the patch file is imported by dragging it
+  onto the Patch Manager window (Import / Validate dialog).
+- Patch files renamed to `DeS_OmniRoll_EU_BLES00932_patch.yml` / `DeS_OmniRoll_US_BLUS30443_patch.yml`, because
+  RPCS3's drag & drop import only accepts names ending in `patch.yml`. The patch content is unchanged from 1.4.
+
 ## 1.4
 - Fix: unlocked diagonal rolls sometimes went to the mirrored diagonal (a vanilla bug, mostly on keyboard). On an
   exact diagonal the game's 4-way snap could pick a sideways roll, or its roll-start turn snapped the facing to an

@@ -24,7 +24,8 @@ Usage:
                 instructions at every hook site, the cave lies in unreachable code, the telemetry block is an
                 unreferenced zero block. Without it those checks are skipped (a warning is printed).
     --patch-db  RPCS3's patches/patch.yml. Enables the "no overlap with that region's other patches" check.
-    --out       output file (default: ../patches/DeS_OmniRoll_<EU_BLES00932|US_BLUS30443>.yml)
+    --out       output file (default: ../patches/DeS_OmniRoll_<EU_BLES00932|US_BLUS30443>_patch.yml;
+                RPCS3's drag & drop import only accepts names ending in 'patch.yml')
 Requires: Python 3.8+, capstone (pip install capstone) for the commented listing.
 """
 import struct, re, os, sys
@@ -454,7 +455,7 @@ def main():
            '    Patch Version: %s\n'
            '    Patch:\n'
            '      - [ load, *%s ]\n') % (SERIAL, PATCH_VERSION, anchor_name)
-    out_path = arg('--out', os.path.join(HERE, '..', 'patches', 'DeS_OmniRoll_%s_%s.yml' % (R['title_id'], SERIAL)))
+    out_path = arg('--out', os.path.join(HERE, '..', 'patches', 'DeS_OmniRoll_%s_%s_patch.yml' % (R['title_id'], SERIAL)))
     open(out_path, 'w', newline='\n').write(doc)
     print('%s %s: cave 0x%x-0x%x (%d words); self-checks passed' % (REGION, SERIAL, CAVE, end, len(a.words)))
     print('wrote', os.path.abspath(out_path))
