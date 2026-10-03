@@ -42,8 +42,7 @@ To check your version: in RPCS3, right-click the game. The serial is shown in th
 Use the file for **your** region (see the table above).
 
 ### Option A: drag & drop into the Patch Manager (recommended)
-RPCS3's Patch Manager has **no Import button**. Importing works by dragging the file onto the window. (Earlier
-versions of this README said "click Import", which was wrong. Sorry!)
+RPCS3's Patch Manager has no direct **Import button**. Importing works by dragging the file onto the window.
 
 1. Download your region's `…_patch.yml` from `patches/`. **Keep the file name as it is**: RPCS3 only accepts
    files whose name ends in `patch.yml`.
