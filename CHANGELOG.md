@@ -2,6 +2,15 @@
 
 Tested on RPCS3 0.0.42-20001.
 
+## 1.4
+- Fix: unlocked diagonal rolls sometimes went to the mirrored diagonal (a vanilla bug, mostly on keyboard). On an
+  exact diagonal the game's 4-way snap could pick a sideways roll, or its roll-start turn snapped the facing to an
+  axis. Unlocked rolls with movement input now face the real move direction, play the forward roll, and hold that
+  facing for 0.3 s. Measured on keyboard: 31/32 diagonal rolls on target.
+- Locked-on rolls unchanged. Backstep and rolls out of a sprint unchanged.
+- Code cave grew to 184 words. The US cave moved to the same offset into its function as EU (0x21F678).
+- Telemetry +0x30 / +0x34 (unlocked fixes). The status tool shows them.
+
 ## 1.3.1
 - New: US version (BLUS30443 v01.00, PPU-83681f6110d33442329073b72b8dc88a2f677172). Same code as EU 1.3 .
 - Patch files renamed per region: `DeS_OmniRoll_EU_BLES00932.yml`, `DeS_OmniRoll_US_BLUS30443.yml`. The EU patch content is unchanged.

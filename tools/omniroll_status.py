@@ -11,7 +11,7 @@ import ctypes, ctypes.wintypes as wt, math, struct, subprocess, sys, time
 
 CAVE_SIG = bytes.fromhex('396000934800001c')   # first two words of the patch code
 # region: (cave address, hold hook address); telemetry block is at 0x019EEB00 in both
-REGIONS = {'EU BLES00932': (0x00220500, 0x00311838), 'US BLUS30443': (0x00221400, 0x00310a60)}
+REGIONS = {'EU BLES00932': (0x00220500, 0x00311838), 'US BLUS30443': (0x0021f678, 0x00310a60)}
 TEL = 0x019EEB00
 
 k32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -74,24 +74,28 @@ print('Patch ACTIVE on %s (code found, hold hook %s).' % (region, 'installed' if
 
 
 def tel():
-    b = hread(base + TEL, 0x30)
-    return struct.unpack('>IIffffIfffII', b)
+    b = hread(base + TEL, 0x38)
+    return struct.unpack('>IIffffIfffIIII', b)
 
 
 def deg(r): return (math.degrees(r) + 180) % 360 - 180
 
 
-red, seen, x, y, yb, yn, fl, ref, hl, hy, hf, raised = tel()
-print('Locked-on rolls redirected: %d  (rolls seen by the patch: %d)' % (red, seen))
+red, seen, x, y, yb, yn, fl, ref, hl, hy, hf, raised, unl, unl_fl = tel()
+print('Locked-on rolls redirected: %d   unlocked rolls normalised: %d   (rolls seen by the patch: %d)' % (red, unl, seen))
 if '--watch' not in sys.argv:
     sys.exit(0)
 print('Watching... lock on and roll (Ctrl+C to stop)')
-last = red
+last, last_unl = red, unl
 NAMES = {0x93: 'forward', 0x94: 'back', 0x95: 'left', 0x96: 'right'}
 while True:
     t = tel()
+    if t[12] != last_unl:
+        print('unlocked roll #%d: rolled toward %+4.0f deg (game wanted the %s flag)'
+              % (t[12], deg(t[9]), NAMES.get(t[13], hex(t[13]))))
+        last_unl = t[12]
     if t[0] != last:
-        red, seen, x, y, yb, yn, fl, ref, hl, hy, hf, raised = t
+        red, seen, x, y, yb, yn, fl, ref, hl, hy, hf, raised, unl, unl_fl = t
         print('roll #%d: stick %+4.0f deg -> %s roll, facing %+4.0f deg from the target (vanilla would have been %s)'
               % (red, math.degrees(math.atan2(x, y)), NAMES.get(raised, hex(raised)), deg(yn - ref),
                  NAMES.get(fl, hex(fl))))

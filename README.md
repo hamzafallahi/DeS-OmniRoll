@@ -9,7 +9,10 @@ Demon's Souls remake and later Souls games.
 * Locked on, front half of the stick (forward, sides, forward diagonals): you roll in exactly that direction.
 * Locked on, back half (back, back diagonals): you get the game's back-roll animation, aimed exactly along the stick.
   You keep roughly facing the enemy.
-* Unlocked rolls, the backstep (roll with the stick neutral) and rolls out of a sprint are **unchanged**.
+* Unlocked rolls go exactly where you're moving. This also **fixes a vanilla bug** where unlocked *diagonal* rolls
+  (mostly on keyboard) randomly go to the mirrored diagonal: forward-right becomes forward-left, and so on
+  (RPCS3 issue #11262).
+* The backstep (roll with the stick neutral) and rolls out of a sprint are **unchanged**.
 * Stamina cost, i-frames, roll speed and timing are **the game's own**. The patch only chooses which roll animation
   plays and which way you face when it starts.
 
@@ -32,7 +35,7 @@ To check your version: in RPCS3, right-click the game. The serial is shown in th
 | | |
 |---|---|
 | Emulator | [RPCS3](https://rpcs3.net) (tested on 0.0.42-20001) |
-| Input | Tested with an Xbox 360 controller. Keyboard should give 8 directions but is untested. |
+| Input | Tested with an Xbox 360 controller and with mouse & keyboard (locked and unlocked). |
 
 ## Install
 

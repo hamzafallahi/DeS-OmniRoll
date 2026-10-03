@@ -106,7 +106,7 @@ b    0x30F858           # common exit
 ### 3.3 What the flags lead to (observed live)
 
 * **Unlocked:** the character already faces the stick direction, because free movement turns it instantly, so the
-  flag is almost always `+0x93` and a forward roll plays in that direction.
+  flag is usually `+0x93` and a forward roll plays in that direction. But see 3.4: exact diagonals can go wrong.
 * **Locked on:** the flag selects one of four roll animations while the character keeps facing the target.
 * The flag is raised **in the same frame the roll animation starts**. A roll buffered during an attack raised its
   flag only when the roll actually began. That makes the flag-write sites a safe place to change the roll.
@@ -114,6 +114,21 @@ b    0x30F858           # common exit
   the roll animation freezes facing until it ends.
 * If a locked-on character is turned **more than 90° away** from the target and starts a forward roll, the roll is
   cancelled on the first press.
+
+### 3.4 The vanilla mirrored-diagonal bug (unlocked, mostly keyboard)
+
+Unpatched Demon's Souls on RPCS3 sometimes sends an **unlocked** diagonal roll to the mirrored diagonal
+(forward-right → forward-left), in random runs. It's reported for vanilla in RPCS3 issue #11262, and it's most
+visible on keyboard. Recordings of keyboard diagonal rolls showed two causes, both from the axis snap in 3.2:
+1. A keyboard diagonal is an **exact** 45°, so |x| == |y|. The per-sample snap keeps one axis on that tie, and
+   after the rotation into the character's frame the result sits on another near-tie. Float noise then sometimes
+   picks a **side** flag (`+0x95`/`+0x96`), and a side roll relative to a diagonal facing is the mirrored diagonal.
+   Example: move −40°, flag `+0x96`, travelled +52°.
+2. Even with the forward flag, the game's **roll-start turn** sometimes snapped the facing 45° toward an axis
+   (move 137° → facing and travel 92°).
+
+An analog stick rarely gives an exact 45°, which is why pads are mostly unaffected. Locked-on rolls were already
+immune with this patch, because it reads the raw stick.
 
 ## 4. What the patch does
 
@@ -127,8 +142,11 @@ if locked on (ctrl+0x139 == 0) and the stick is outside the roll deadzone:
     if |a| <= 90 deg:  yaw = ref + a;        play the FORWARD roll (+0x93)
     else:              yaw = ref + a - 180;  play the BACK roll    (+0x94)   (a +/- 180, wrapped)
     set the character's yaw; start a 0.3 s "hold" of that yaw
+else if unlocked and the move vector m = PadManipulator+0x60 has |m| > 0.5:   # fixes 3.4
+    yaw = atan2(-m.x, -m.z)                         # faces the real (unsnapped) move direction
+    play the FORWARD roll (+0x93); set the yaw; start the 0.3 s hold
 else:
-    raise the original flag (vanilla behaviour)
+    raise the original flag (vanilla behaviour: backstep, released flick)
 ```
 **B. Every frame (wrapping the call to the roll decision in the PadManipulator update):**
 ```
@@ -149,6 +167,11 @@ Why each choice:
 * **Raw stick, not the game's snapped value.** The patch re-reads the stick with the game's own function
   `0x1C3E88`, because the values left in registers have already been snapped.
 * **Same deadzone as the game.** A neutral or nearly neutral stick falls through to vanilla, so the backstep is unchanged.
+* **Unlocked: the game's own move vector.** `PadManipulator+0x60` is the world-space move direction that
+  `PadManipulator::Update` computes from the raw stick and the camera (in `0x310578`, before the roll decision at
+  `0x311838`). Free movement keeps the facing exactly at `atan2(-m.x, -m.z)` (verified live), so for a normal
+  roll the patch writes the yaw the character already has and the forward flag the game already chose. Only the
+  snapped cases change. The hold then beats the roll-start snap (3.4, cause 2).
 * **The game's own helpers.** `atan2f` (`0x9513A0`, also used by the game's `NoAnimeTurnCharactor` script command)
   and the same rotation field that `SetRotation` (`0x2E9838`) writes.
 
@@ -160,8 +183,8 @@ Stamina, i-frames, roll speed and roll distance all come from the animation the 
 |---|---|---|
 | Hook ×4 | `0x30F9D8`, `0x31009C`, `0x3100D4`, `0x31016C` | first instruction (`li r0,1`) of each direction write becomes `b stub` |
 | Hook (hold) | `0x311838` | `bl 0x30F528` becomes `bl hold`, which calls `0x30F528` itself |
-| Code cave | `0x220500`–`0x22076B` (155 words) | inside the function at `0x220320`–`0x222537`. Nothing calls that function: no `bl`/`b` references and no references to its function descriptor (OPD `0x192B2B8`). The community FreeCam patch overwrites its entry point, which is field evidence it never runs. This cave starts after FreeCam's range (`0x220320`–`0x2204AF`). |
-| Telemetry | `0x19EEB00`–`0x19EEB2F` | a zero-filled block in the writable data segment (`0x19EEA54`–`0x19EEBF7`) with no code or pointer references. Verified to stay zero during play. |
+| Code cave | `0x220500`–`0x2207DF` (184 words) | inside the function at `0x220320`–`0x222537`. Nothing calls that function: no `bl`/`b` references and no references to its function descriptor (OPD `0x192B2B8`). The community FreeCam patch overwrites its entry point, which is field evidence it never runs. This cave starts after FreeCam's range (`0x220320`–`0x2204AF`). |
+| Telemetry | `0x19EEB00`–`0x19EEB37` | a zero-filled block in the writable data segment (`0x19EEA54`–`0x19EEBF7`) with no code or pointer references. Verified to stay zero during play. |
 
 The build script also checks that none of these addresses overlap any BLES00932 patch in RPCS3's `patch.yml`
 (Unlock FPS, Skip Intro, Aspect Ratio, Motion Blur, FreeCam), including Unlock FPS's data slot at `0x1852608`.
@@ -182,6 +205,8 @@ Purely informational. The patch writes it so you can confirm it's working; nothi
 | +0x24 | f32 | held yaw |
 | +0x28 | u32 | frames the hold was applied |
 | +0x2C | u32 | flag raised by the patch |
+| +0x30 | u32 | unlocked rolls normalised (3.4 fix) |
+| +0x34 | u32 | flag the game wanted for the last unlocked roll |
 
 `tools/omniroll_status.py --watch` reads this block.
 
@@ -197,7 +222,7 @@ Structure:
 0x220520  common:
             stdu r1,-0x80(r1) ; save LR and r11              own stack frame
             telemetry +04 ++
-            lbz r0,0x139(r15) ; bne -> vanilla               unlocked: vanilla
+            lbz r0,0x139(r15) ; bne -> unlocked              unlocked: see below
             bl 0x1C3E88(out=sp+0x60, pad=[caller sp+0x78], 0x11, 0x10)    raw left stick
             x*x+y*y <= deadzone^2 -> vanilla                 same deadzone global as the game
             bl atan2f(x, y)                -> a
@@ -205,13 +230,17 @@ Structure:
             |a| > pi/2 ? (flag=0x94, a -= / += pi) : flag=0x93
             yaw = wrap(ref + a) -> [ctrl+0x10]+4 ; hold yaw, hold time = 0.3
             telemetry ; r11 = flag
+0x2206BC  unlocked:
+            m = PadManipulator+0x60 (r14) ; |m|^2 <= 0.25 -> vanilla
+            bl atan2f(-m.x, -m.z) -> yaw -> [ctrl+0x10]+4 ; hold yaw, hold time = 0.3
+            telemetry +30 ++, +34 = original flag ; r11 = 0x93
           vanilla: r11 = original flag
           raise: stb 1 -> +0x158(r14) ; stbx 1 -> r14+r11 ; restore ; b 0x30F858
-0x2206DC  hold:  (replaces bl 0x30F528 in PadManipulator::Update)
+0x22074C  hold:  (replaces bl 0x30F528 in PadManipulator::Update)
             save dt (f1) and ctrl (r5) ; bl 0x30F528 with the original arguments
             if hold time > 0: hold time -= dt ; [ctrl+0x10]+4 = held yaw
             blr
-0x220750  constants: pi, 2pi, -pi, 0.3, 0.0001, 0.0, pi/2
+0x2207C0  constants: pi, 2pi, -pi, 0.3, 0.0001, 0.0, pi/2, 0.25
 ```
 
 ABI details that matter on PS3 (all handled):
@@ -273,6 +302,7 @@ What was done, in order, so it can be repeated for other games or versions.
 | 1.2 | yaw sign flipped | Front half perfect. Back and back-diagonals cancelled on the first press. |
 | 1.3 | back half uses the back roll and faces `angle − 180°` | All directions work on the first press |
 | 1.3 (US) | same code built for BLUS30443 | Statically checked (section 10);  |
+| 1.4 | unlocked rolls face the real move direction + forward roll + hold (3.4) | M&K: 31/32 unlocked diagonal rolls measured on target (the 32nd was a chained roll), including every case where the game had picked a side flag; locked M&K unchanged |
 
 The recording behind 1.1 showed the yaw being set correctly at roll start (+90° for a left roll), then pulled
 back by about 60° within 0.1 s, then frozen for the rest of the roll. The hold was sized from that.
@@ -308,7 +338,7 @@ In game: `tools/omniroll_status.py` checks that the cave is in memory and the ho
 ### US (BLUS30443 v01.00)
 
 RPCS3 PPU hash `PPU-83681f6110d33442329073b72b8dc88a2f677172`. The US executable is a slightly different build of
-the same game, so the patch code is identical, just placed at different addresses. Of the 155 cave words, only 9
+the same game, so the patch code is identical, just placed at different addresses. Of the 184 cave words, only 11
 differ (calls, the branch back to the game, and the constants pointer), plus the five hook sites.
 
 | What | EU BLES00932 | US BLUS30443 | Relation |
@@ -324,8 +354,8 @@ differ (calls, the branch back to the game, and the constants pointer), plus the
 | PadMan::GetPadDeviceForIdx | `0x1C5968` | `0x1C4AE0` | −0xE88 |
 | atan2f wrapper | `0x9513A0` | `0x94F928` | −0x1A78 |
 | Unreachable cave function | `0x220320`–`0x222537` | from `0x21F498` | |
-| Code cave | `0x220500`–`0x22076B` | `0x221400`–`0x22166B` | |
-| Constants (inside the cave) | `0x220750` | `0x221650` | |
+| Code cave | `0x220500`–`0x2207DF` | `0x21F678`–`0x21F957` | both at function + 0x1E0 |
+| Constants (inside the cave) | `0x2207C0` | `0x21F938` | |
 | Telemetry block | `0x19EEB00` | `0x19EEB00` | same |
 | Struct offsets (`ctrl+0x139`, `[ctrl+0x10]+4`, PlayerIns `+0x110`, PadManipulator flags) | | same | |
 
@@ -335,13 +365,13 @@ How the US addresses check out without a US executable at hand:
 * The pad code shifts by −0xE88. That matches `PadMan::GetPadDeviceForIdx`, whose US address `0x1C4AE0` decodes
   independently from the `bl` in the US FreeCam patch in RPCS3's database (EU `0x1C5968`, also −0xE88).
 * The cave function `0x21F498` is the one the US FreeCam patch overwrites (`0x21F498`–`0x21F627`), the counterpart
-  of the EU function. The cave sits past FreeCam's range.
+  of the EU function. The cave sits at the same offset into it as on EU (+0x1E0), past FreeCam's range.
 * The build script finds no overlap with any of the US patches in RPCS3's database.
 
 Still to confirm (run the builder with `--region US --elf <decrypted US EBOOT>`, then test in game):
 * the original instructions at the five US hook sites;
 * that `0x94F928` is the atan2f wrapper (pattern in the porting steps below);
-* that the end of the cave function and the telemetry block are as assumed (the builder's `--elf` checks cover both).
+* that the cave function and the telemetry block are as assumed (the builder's `--elf` checks cover both).
 
 ### Porting to JP / Asia
 
@@ -365,7 +395,8 @@ The JP (BCJS30022) and Asia (BCAS20071) executables are different builds again. 
 
 * EU BLES00932 v01.00 is tested in game. US BLUS30443 v01.00 is supported.
   JP and Asia aren't supported.
-* Keyboard: RPCS3 maps keys to the analog stick, so 8 directions are expected, but this hasn't been tested.
+* Keyboard: tested (v1.4), locked and unlocked. Controller unlocked rolls go through the 3.4 fix too. By design
+  that's a no-op for them, but it hasn't been re-tested on a pad since v1.3.
 * Heavy-load ("fat") rolls are expected to work the same way (same flags) but haven't been tested specifically.
 * Rolls out of a sprint (roll button held > 0.4 s) don't go through the four flags and are unchanged.
 * The reference direction is the direction to the lock-on target, not the camera. While locked on these almost

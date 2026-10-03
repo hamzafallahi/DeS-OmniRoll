@@ -95,10 +95,10 @@ def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PATCH_VERSION = '1.3'
+PATCH_VERSION = '1.4'
 HOLD_SECONDS = 0.30        # lock-on turns the char back toward the target during the first ~0.1 s of a roll
 YAW_SIGN = +1              # yaw := ref + YAW_SIGN*atan2(x, y); verified in game: -1 was mirrored (v1.1)
-TELEM_SIZE = 0x30
+TELEM_SIZE = 0x38
 
 # Per-executable addresses. EU: found and verified in game. US: same code shifted (decision/hook region -0xdd8,
 # pad code -0xe88, matching the US FreeCam patch); the --elf checks validate a US EBOOT.
@@ -112,7 +112,7 @@ REGIONS = {
                get_stick=0x1c3e88, atan2f=0x9513a0),
     'US': dict(serial='BLUS30443', title_id='US', ppu='PPU-83681f6110d33442329073b72b8dc88a2f677172',
                func=0x21f498, func_end=0x2216b0,   # same function as EU 0x220320 (US FreeCam uses its head)
-               cave=0x221400,
+               cave=0x21f678,                      # func+0x1e0, same relative spot as EU; past US FreeCam (..0x21f627)
                telem=0x019eeb00, telem_run=(0x19eeab8, 0x19eeb38),
                sites={0x93: 0x30f2fc, 0x94: 0x30f394, 0x95: 0x30ec00, 0x96: 0x30f2c4},
                join=0x30ea80, decision=0x30e750, hold_site=0x310a60,
@@ -152,6 +152,7 @@ fmuls = lambda d, a, c: (59 << 26) | (d << 21) | (a << 16) | (c << 6) | (25 << 1
 fmadds = lambda d, a, c, b: (59 << 26) | (d << 21) | (a << 16) | (b << 11) | (c << 6) | (29 << 1)
 fadds = lambda d, a, b: (59 << 26) | (d << 21) | (a << 16) | (b << 11) | (21 << 1)
 fsubs = lambda d, a, b: (59 << 26) | (d << 21) | (a << 16) | (b << 11) | (20 << 1)
+fneg = lambda d, b: (63 << 26) | (d << 21) | (b << 11) | (40 << 1)
 fabs = lambda d, b: (63 << 26) | (d << 21) | (b << 11) | (264 << 1)
 frsp = lambda d, b: (63 << 26) | (d << 21) | (b << 11) | (12 << 1)
 stbx = lambda rs, ra, rb: (31 << 26) | (rs << 21) | (ra << 16) | (rb << 11) | (215 << 1)
@@ -200,8 +201,8 @@ def hi_lo(addr):
 
 
 CONSTS = [(3.14159265, 'pi'), (6.28318531, '2pi'), (-3.14159265, '-pi'), (HOLD_SECONDS, 'hold seconds'),
-          (0.0001, 'min target dist^2'), (0.0, 'zero'), (1.57079633, 'pi/2')]
-C_PI, C_2PI, C_NPI, C_HOLD, C_MIND2, C_ZERO, C_HALFPI = (4 * i for i in range(7))
+          (0.0001, 'min target dist^2'), (0.0, 'zero'), (1.57079633, 'pi/2'), (0.25, 'min move^2 (|v| > 0.5)')]
+C_PI, C_2PI, C_NPI, C_HOLD, C_MIND2, C_ZERO, C_HALFPI, C_MINMOVE2 = (4 * i for i in range(8))
 
 
 def build():
@@ -230,7 +231,7 @@ def build():
     a.emit(lwz(10, 4, 12)); a.emit(addi(10, 10, 1)); a.emit(stw(10, 4, 12), 'telem+04: directional rolls seen')
     a.emit(lbz(0, 0x139, 15), 'ctrl+0x139 free-move flag: 0 = locked on')
     a.emit(cmpwi(7, 0, 0))
-    a.bc(BO_FALSE, CR7_EQ, 'vanilla', 'bne: unlocked -> vanilla')
+    a.bc(BO_FALSE, CR7_EQ, 'unlocked', 'bne: unlocked -> unlocked fix')
     a.emit(addi(3, 1, 0x60), 'out = sp+0x60')
     a.emit(lwz(4, 0x80 + 0x78, 1), 'pad device (0x30f528 keeps it at its sp+0x78)')
     a.emit(li(5, 0x11)); a.emit(li(6, 0x10))
@@ -309,6 +310,33 @@ def build():
     a.emit(ld(11, 0x78, 1), 'raise FORWARD (front half) or BACK (back half) instead')
     a.emit(stw(11, 0x2c, 12), 'telem+2c: raised flag')
     a.b('raise')
+
+    # ---- unlocked: vanilla snaps the stick to an axis (exact keyboard diagonals tie) and can raise a SIDE flag or
+    # turn the character toward a snapped axis at roll start -> mirrored diagonals. Face the real move direction
+    # (PadManipulator+0x60, the world move vector written this frame before the roll decision), roll forward, hold.
+    # For a controller this re-applies the facing the character already has.
+    a.label('unlocked')
+    a.emit(lfs(1, 0x60, 14), 'f1 = move.x (PadManipulator+0x60, world)')
+    a.emit(lfs(2, 0x68, 14), 'f2 = move.z')
+    a.emit(fmuls(3, 1, 1)); a.emit(fmadds(3, 2, 2, 3), 'f3 = |move|^2')
+    CON()
+    a.emit(lfs(4, C_MINMOVE2, 10))
+    a.emit(fcmpu(7, 3, 4))
+    a.bc(BO_FALSE, CR7_GT, 'vanilla', 'ble: no movement input (backstep, released flick) -> vanilla')
+    a.emit(fneg(1, 1)); a.emit(fneg(2, 2))
+    a.b(ATAN2F, link=True, note='bl atan2f(-x, -z) = yaw facing the move direction')
+    a.emit(lwz(9, 0x10, 15))
+    a.emit(stfs(1, 4, 9), 'SET YAW')
+    CON()
+    a.emit(lfs(5, C_HOLD, 10))
+    TEL()
+    a.emit(stfs(1, 0x24, 12), 'telem+24: hold yaw')
+    a.emit(stfs(5, 0x20, 12), 'telem+20: hold seconds left (beats the roll-start snap)')
+    a.emit(lwz(10, 0x30, 12)); a.emit(addi(10, 10, 1)); a.emit(stw(10, 0x30, 12), 'telem+30: unlocked rolls normalised')
+    a.emit(ld(11, 0x70, 1)); a.emit(stw(11, 0x34, 12), 'telem+34: original flag (unlocked)')
+    a.emit(li(11, 0x93), 'raise FORWARD')
+    a.b('raise')
+
     a.label('vanilla')
     a.emit(ld(11, 0x70, 1), 'original flag')
     a.label('raise')
@@ -401,7 +429,8 @@ def main():
            % (PATCH_VERSION, R['title_id'], SERIAL, ROLL_DECISION),
            '  # Cave in unreachable code: function 0x%x, cave 0x%x-0x%x. Telemetry @ 0x%08X:' % (R['func'], CAVE, end, TELEM),
            '  #   +00 redirected  +04 directional rolls  +08/+0c stick x/y  +10 yaw before  +14 new yaw',
-           '  #   +18 original flag  +1c yaw to target  +20 hold s left  +24 hold yaw  +28 hold frames  +2c raised flag']
+           '  #   +18 original flag  +1c yaw to target  +20 hold s left  +24 hold yaw  +28 hold frames  +2c raised flag',
+           '  #   +30 unlocked rolls normalised  +34 original flag (unlocked)']
     for site, w, txt in hooks:
         out.append('    - [ be32, 0x%08x, 0x%08x ] # %s' % (site, w, txt))
     for i, w in enumerate(a.words):
